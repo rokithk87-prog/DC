@@ -9,7 +9,7 @@ import numpy as np
 import io
 import re
 from datetime import datetime
-from clean_excel import clean_dataframe, write_cleaned_excel
+from clean_excel import clean_dataframe, write_output
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
