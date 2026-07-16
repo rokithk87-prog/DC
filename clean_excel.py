@@ -85,7 +85,7 @@ def clean_dataframe(df):
     report["columns_renamed"] = renamed
 
     # 2. Replace missing-value placeholders with NaN
-    df = df.applymap(normalize_missing)
+    df = df.map(normalize_missing)
 
     # 3. Drop completely empty rows and columns
     before_rows = len(df)
