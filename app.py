@@ -1,215 +1,306 @@
 """
-Excel Data Cleaner — Streamlit UI
-Run with: streamlit run app.py
+AI Excel Data Quality Assistant — Premium Streamlit UI
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-import re
+import os
+import tempfile
+import plotly.graph_objects as go
+import plotly.express as px
+import base64
 from datetime import datetime
-from clean_excel import clean_dataframe, write_cleaned_excel
+from clean_excel import clean_dataframe, generate_analytics, write_cleaned_excel
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Excel Cleaner",
-    page_icon="🧹",
+    page_title="AI Data Quality Assistant",
+    page_icon="✨",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# ── Styles (Light / Rich Theme) ───────────────────────────────────────────────
+# ── Premium CSS Styling ───────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
-        color: #1e293b;
+        color: #0f172a;
     }
 
-    /* Hide default Streamlit chrome */
+    /* Hide Streamlit Branding */
     #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding: 2rem 3rem 4rem 3rem; max-width: 1100px; }
+    .block-container { padding: 3rem 4rem 4rem 4rem; max-width: 1200px; margin: 0 auto; }
 
-    /* Hero */
+    /* Hero Section */
     .hero {
+        text-align: center;
+        padding: 3rem 0 2rem 0;
+    }
+    .hero h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        background: linear-gradient(to right, #2563EB, #7C3AED);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 1rem;
+        line-height: 1.1;
+    }
+    .hero p {
+        font-size: 1.25rem;
+        color: #64748b;
+        font-weight: 400;
+        max-width: 700px;
+        margin: 0 auto;
+    }
+
+    /* Cards */
+    .card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 16px;
-        padding: 2.5rem 3rem;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+        padding: 24px;
+        box-shadow: 0 4px 20px -2px rgba(0,0,0,0.04);
+        transition: all 0.3s ease;
+        height: 100%;
     }
-    .hero h1 {
-        color: #0f172a;
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0 0 0.4rem 0;
-        letter-spacing: -0.02em;
+    .card:hover {
+        box-shadow: 0 10px 30px -5px rgba(0,0,0,0.08);
+        transform: translateY(-2px);
+        border-color: #cbd5e1;
     }
-    .hero p {
-        color: #64748b;
-        font-size: 0.95rem;
-        margin: 0;
-    }
-    .hero .badge {
-        display: inline-block;
-        background: #eff6ff;
-        color: #2563eb;
-        font-size: 0.7rem;
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 999px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        margin-bottom: 0.8rem;
-    }
-
-    /* Upload zone */
-    [data-testid="stFileUploader"] {
-        border: 2px dashed #cbd5e1 !important;
-        border-radius: 12px !important;
-        background: #f8fafc !important;
-        padding: 1rem !important;
-        transition: border-color 0.2s;
-    }
-    [data-testid="stFileUploader"]:hover {
-        border-color: #2563eb !important;
-    }
-
-    /* Metric cards */
-    .metric-row { display: flex; gap: 1rem; margin: 1.5rem 0; flex-wrap: wrap; }
-    .metric-card {
+    
+    .kpi-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.1rem 1.4rem;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-        flex: 1;
-        min-width: 130px;
+        border-radius: 16px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
-    .metric-card .label {
-        color: #64748b;
-        font-size: 0.72rem;
+    .kpi-card .label {
+        font-size: 0.8rem;
         font-weight: 600;
+        color: #64748b;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 0.3rem;
+        letter-spacing: 0.05em;
+        margin-bottom: 8px;
     }
-    .metric-card .value {
-        color: #0f172a;
-        font-size: 1.6rem;
+    .kpi-card .value {
+        font-size: 2.5rem;
         font-weight: 700;
         font-family: 'JetBrains Mono', monospace;
         line-height: 1;
     }
-    .metric-card .delta {
-        font-size: 0.75rem;
-        margin-top: 0.25rem;
-    }
-    .delta-good { color: #16a34a; }
-    .delta-bad  { color: #dc2626; }
-    .delta-neu  { color: #64748b; }
+    .kpi-blue .value { color: #2563EB; }
+    .kpi-red .value { color: #DC2626; }
+    .kpi-green .value { color: #16A34A; }
+    .kpi-purple .value { color: #7C3AED; }
 
-    /* Section headers */
-    .section-label {
-        color: #64748b;
-        font-size: 0.72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin: 2rem 0 0.75rem 0;
-        padding-bottom: 0.4rem;
-        border-bottom: 1px solid #e2e8f0;
-    }
-
-    /* Tag pills */
-    .pill {
-        display: inline-block;
-        background: #f1f5f9;
-        color: #475569;
-        font-size: 0.72rem;
-        font-weight: 500;
-        padding: 3px 10px;
-        border-radius: 999px;
-        margin: 2px;
-        font-family: 'JetBrains Mono', monospace;
-    }
-    .pill-warn {
-        background: #fff7ed;
-        color: #ea580c;
-    }
-    .pill-ok {
-        background: #f0fdf4;
-        color: #16a34a;
-    }
-
-    /* Download button */
-    .stDownloadButton > button {
-        background: #2563eb !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        padding: 0.6rem 1.4rem !important;
-        font-size: 0.9rem !important;
-        width: 100%;
-        transition: background 0.15s;
-        box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
-    }
-    .stDownloadButton > button:hover {
-        background: #1d4ed8 !important;
-    }
-
-    /* Dataframe */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        overflow: hidden;
-    }
-
-    /* Rename table */
-    .rename-row {
+    /* Section Headers */
+    .section-header {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin-top: 3rem;
+        margin-bottom: 1.5rem;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.3rem 0;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.8rem;
-        color: #64748b;
     }
-    .rename-row .arrow { color: #2563eb; }
-    .rename-row .new-name { color: #16a34a; }
+    .section-header::before {
+        content: '';
+        display: inline-block;
+        width: 6px;
+        height: 24px;
+        background: #2563EB;
+        border-radius: 4px;
+        margin-right: 12px;
+    }
+
+    /* Upload Area */
+    [data-testid="stFileUploader"] {
+        background: #f8fafc;
+        border: 2px dashed #cbd5e1;
+        border-radius: 12px;
+        padding: 20px;
+    }
+    [data-testid="stFileUploader"]:hover {
+        border-color: #2563EB;
+        background: #eff6ff;
+    }
+
+    /* Buttons */
+    .stButton > button {
+        background: #2563EB;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 600;
+        width: 100%;
+        transition: all 0.2s;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+    .stButton > button:hover {
+        background: #1D4ED8;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+    }
+    .stDownloadButton > button {
+        background: #ffffff;
+        color: #2563EB;
+        border: 1px solid #2563EB;
+        box-shadow: none;
+    }
+    .stDownloadButton > button:hover {
+        background: #eff6ff;
+        border-color: #1D4ED8;
+    }
+
+    /* Chat */
+    .chat-msg {
+        padding: 12px 16px;
+        border-radius: 12px;
+        margin-bottom: 10px;
+        max-width: 80%;
+        font-size: 0.9rem;
+    }
+    .chat-user {
+        background: #2563EB;
+        color: white;
+        margin-left: auto;
+        border-bottom-right-radius: 2px;
+    }
+    .chat-ai {
+        background: #f1f5f9;
+        color: #0f172a;
+        margin-right: auto;
+        border-bottom-left-radius: 2px;
+    }
+    
+    /* Tables */
+    .dataframe {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+    .dataframe th {
+        background: #f8fafc;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #e2e8f0;
+        color: #475569;
+    }
+    .dataframe td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #f1f5f9;
+        color: #334155;
+    }
+    
+    /* Badges */
+    .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .badge-red { background: #FEE2E2; color: #DC2626; }
+    .badge-green { background: #D1FAE5; color: #059669; }
+    .badge-blue { background: #DBEAFE; color: #2563EB; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Hero ──────────────────────────────────────────────────────────────────────
+# ── Helper Functions ──────────────────────────────────────────────────────────
+
+def create_gauge_chart(score):
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = score,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        number = {'font': {'size': 40, 'color': '#2563EB'}},
+        gauge = {
+            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#e2e8f0"},
+            'bar': {'color': "#2563EB"},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "#e2e8f0",
+            'steps': [
+                {'range': [0, 50], 'color': '#FEE2E2'},
+                {'range': [50, 80], 'color': '#FEF3C7'},
+                {'range': [80, 100], 'color': '#D1FAE5'}
+            ],
+            'threshold': {
+                'line': {'color': "#0f172a", 'width': 4},
+                'thickness': 0.75,
+                'value': score
+            }
+        }
+    ))
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=0, b=20))
+    return fig
+
+def create_missing_heatmap(df):
+    missing_df = df.isna().sum().to_frame(name='Missing Count')
+    missing_df['Percentage'] = (missing_df['Missing Count'] / len(df)) * 100
+    missing_df = missing_df[missing_df['Missing Count'] > 0].sort_values('Percentage', ascending=True)
+    
+    if missing_df.empty:
+        return None
+    
+    fig = px.bar(
+        missing_df, 
+        x='Percentage', 
+        y=missing_df.index,
+        orientation='h',
+        labels={'Percentage': '% Missing', 'index': 'Column'},
+        color='Percentage',
+        color_continuous_scale=['#10B981', '#F59E0B', '#EF4444']
+    )
+    fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), plot_bgcolor='white', paper_bgcolor='white')
+    return fig
+
+def ai_copilot_response(question, analytics):
+    q = question.lower()
+    if "unhealthy" in q or "why" in q:
+        return f"Your dataset health score is {analytics['health_score']}/100. The main issues dragging down the score are: {analytics['total_missing']} missing values, {analytics['total_duplicates']} duplicate rows, and {analytics['total_outliers']} outliers. I recommend addressing missing values first by either imputing or dropping them."
+    elif "fix first" in q or "columns" in q:
+        missing_cols = sorted(analytics['missing_by_col'].items(), key=lambda x: x[1], reverse=True)[:3]
+        cols = ", ".join([f"{c[0]} ({c[1]} missing)" for c in missing_cols if c[1] > 0])
+        return f"You should fix these columns first: {cols}. Prioritizing these will yield the highest improvement in data quality."
+    elif "cleaning" in q or "recommendations" in q:
+        return "Here are my AI recommendations: \n1. Remove exact duplicate rows. \n2. Standardize all email formats to lowercase and remove invalid entries. \n3. Impute missing numeric values (like Unit Price) with 0 or the column median. \n4. Convert all dates to YYYY-MM-DD format."
+    else:
+        return "I can help you understand your dataset's health. Try asking: 'Why is my dataset unhealthy?', 'Which columns should I fix first?', or 'Explain the cleaning recommendations'."
+
+# ── UI Layout ─────────────────────────────────────────────────────────────────
+
+# Hero Section
 st.markdown("""
 <div class="hero">
-    <div class="badge">Data Quality Tool</div>
-    <h1>🧹 Excel Cleaner</h1>
-    <p>Upload a messy .xlsx or .csv file — duplicates, missing values, bad headers, and outliers handled automatically.</p>
+    <h1>AI Excel Data Quality Assistant</h1>
+    <p>Automatically detect, clean, validate, and transform messy datasets using AI-powered data quality intelligence.</p>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Upload ────────────────────────────────────────────────────────────────────
-uploaded = st.file_uploader(
-    "Drop your file here or click to browse",
-    type=["xlsx", "xls", "csv"],
-    label_visibility="collapsed",
-)
+# Upload Section
+uploaded = st.file_uploader("Drop your Excel or CSV file here", type=["xlsx", "csv"], label_visibility="collapsed")
 
 if not uploaded:
     st.markdown("""
-    <div style="text-align:center; color:#64748b; padding: 1.5rem 0; font-size:0.85rem;">
-        Supports <strong style="color:#475569">.xlsx</strong>, <strong style="color:#475569">.xls</strong>, and <strong style="color:#475569">.csv</strong>
+    <div style="text-align:center; color:#64748b; padding: 2rem 0; font-size:0.9rem;">
+        <b>Supported formats:</b> .xlsx, .xls, .csv &nbsp;|&nbsp; <b>Secure:</b> Files are processed in-memory and never stored.
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
-# ── Load ──────────────────────────────────────────────────────────────────────
+# Load Data
 @st.cache_data(show_spinner=False)
 def load_file(file_bytes, name):
     if name.endswith(".csv"):
@@ -217,160 +308,203 @@ def load_file(file_bytes, name):
     else:
         return pd.read_excel(io.BytesIO(file_bytes), dtype=str)
 
-with st.spinner("Reading file…"):
+try:
     file_bytes = uploaded.read()
-    try:
-        df_raw = load_file(file_bytes, uploaded.name)
-    except Exception as e:
-        st.error(f"Could not read file: {e}")
-        st.stop()
+    df_raw = load_file(file_bytes, uploaded.name)
+except Exception as e:
+    st.error(f"Error reading file: {e}")
+    st.stop()
 
-# ── Preview raw ───────────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">Raw Preview</div>', unsafe_allow_html=True)
-st.dataframe(df_raw.head(50), use_container_width=True, height=220)
-
-# ── Clean ─────────────────────────────────────────────────────────────────────
-with st.spinner("Cleaning…"):
-    df_clean, report, outlier_mask = clean_dataframe(df_raw.copy())
-
-orig = report["original_shape"]
-final = report["final_shape"]
-
-# ── Metrics ───────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">Cleaning Summary</div>', unsafe_allow_html=True)
-
-rows_removed = orig[0] - final[0]
-cols_removed  = orig[1] - final[1]
-total_outliers = sum(report.get("outliers_flagged", {}).values())
-
-st.markdown(f"""
-<div class="metric-row">
-    <div class="metric-card">
-        <div class="label">Rows Before</div>
-        <div class="value">{orig[0]:,}</div>
-    </div>
-    <div class="metric-card">
-        <div class="label">Rows After</div>
-        <div class="value">{final[0]:,}</div>
-        <div class="delta {'delta-good' if rows_removed > 0 else 'delta-neu'}">
-            {"−" + str(rows_removed) + " removed" if rows_removed > 0 else "No rows removed"}
-        </div>
-    </div>
-    <div class="metric-card">
-        <div class="label">Duplicates</div>
-        <div class="value">{report["duplicates_removed"]}</div>
-        <div class="delta delta-good">removed</div>
-    </div>
-    <div class="metric-card">
-        <div class="label">Empty Rows</div>
-        <div class="value">{report["empty_rows_removed"]}</div>
-        <div class="delta delta-good">removed</div>
-    </div>
-    <div class="metric-card">
-        <div class="label">Empty Cols</div>
-        <div class="value">{report["empty_cols_removed"]}</div>
-        <div class="delta delta-good">removed</div>
-    </div>
-    <div class="metric-card">
-        <div class="label">Outliers</div>
-        <div class="value">{total_outliers}</div>
-        <div class="delta {'delta-bad' if total_outliers > 0 else 'delta-neu'}">
-            {"flagged" if total_outliers > 0 else "none"}
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ── Detail pills ──────────────────────────────────────────────────────────────
-col1, col2 = st.columns(2)
-
+# File Info Card
+st.markdown("<div class='card' style='margin-bottom: 2rem; padding: 15px 25px;'>", unsafe_allow_html=True)
+col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
 with col1:
-    if report.get("date_cols_detected"):
-        st.markdown("**📅 Date columns auto-detected**")
-        pills = " ".join(f'<span class="pill pill-ok">{c}</span>' for c in report["date_cols_detected"])
-        st.markdown(pills, unsafe_allow_html=True)
-
-    if report.get("numeric_cols_converted"):
-        st.markdown("**🔢 Numeric columns converted from text**")
-        pills = " ".join(f'<span class="pill">{c}</span>' for c in report["numeric_cols_converted"])
-        st.markdown(pills, unsafe_allow_html=True)
-
-    if report.get("fixed_counts"):
-        st.markdown("**🛠️ Cells fixed per column**")
-        pills = " ".join(
-            f'<span class="pill pill-ok">{c}: {n}</span>'
-            for c, n in report["fixed_counts"].items() if n > 0
-        )
-        st.markdown(pills, unsafe_allow_html=True)
-
+    st.markdown(f"**📄 File:** {uploaded.name}")
 with col2:
-    if report.get("outliers_flagged"):
-        st.markdown("**⚠️ Outlier counts by column**")
-        pills = " ".join(
-            f'<span class="pill pill-warn">{c}: {n}</span>'
-            for c, n in report["outliers_flagged"].items()
+    st.markdown(f"**📏 Size:** {uploaded.size / 1024:.1f} KB")
+with col3:
+    st.markdown(f"**🔢 Rows:** {len(df_raw):,}")
+with col4:
+    st.markdown(f"**📊 Cols:** {len(df_raw.columns)}")
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Generate Analytics
+analytics = generate_analytics(df_raw)
+
+# ── KPI Dashboard ─────────────────────────────────────────────────────────────
+st.markdown("<div class='section-header'>Dataset Health Overview</div>", unsafe_allow_html=True)
+
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+with kpi1:
+    st.markdown(f"<div class='kpi-card kpi-blue'><div class='label'>Health Score</div><div class='value'>{analytics['health_score']}</div></div>", unsafe_allow_html=True)
+with kpi2:
+    st.markdown(f"<div class='kpi-card kpi-red'><div class='label'>Missing Values</div><div class='value'>{analytics['total_missing']:,}</div></div>", unsafe_allow_html=True)
+with kpi3:
+    st.markdown(f"<div class='kpi-card kpi-purple'><div class='label'>Duplicates</div><div class='value'>{analytics['total_duplicates']:,}</div></div>", unsafe_allow_html=True)
+with kpi4:
+    st.markdown(f"<div class='kpi-card kpi-red'><div class='label'>Outliers</div><div class='value'>{analytics['total_outliers']:,}</div></div>", unsafe_allow_html=True)
+with kpi5:
+    st.markdown(f"<div class='kpi-card kpi-green'><div class='label'>Columns</div><div class='value'>{analytics['total_columns']}</div></div>", unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Visualizations ────────────────────────────────────────────────────────────
+viz1, viz2 = st.columns([1, 2])
+
+with viz1:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-top:0; color:#1e293b;'>Data Quality Score</h3>", unsafe_allow_html=True)
+    st.plotly_chart(create_gauge_chart(analytics['health_score']), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with viz2:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-top:0; color:#1e293b;'>Missing Value Analysis</h3>", unsafe_allow_html=True)
+    heatmap = create_missing_heatmap(df_raw)
+    if heatmap:
+        st.plotly_chart(heatmap, use_container_width=True)
+    else:
+        st.markdown("<div style='text-align:center; padding:3rem; color:#16A34A;'>✅ No missing values detected!</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ── AI Data Copilot ───────────────────────────────────────────────────────────
+st.markdown("<div class='section-header'>AI Data Quality Copilot</div>", unsafe_allow_html=True)
+
+st.markdown("<div class='card' style='background:#f8fafc; border-color:#e2e8f0;'>", unsafe_allow_html=True)
+st.markdown("<h3 style='margin-top:0; color:#1e293b;'>💬 Ask our AI about your dataset</h3>", unsafe_allow_html=True)
+
+# Chat History
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = [
+        ("ai", "Hello! I've analyzed your dataset. Ask me anything about its quality or how to fix it.")
+    ]
+
+for sender, msg in st.session_state.chat_history:
+    css_class = "chat-ai" if sender == "ai" else "chat-user"
+    st.markdown(f"<div class='chat-msg {css_class}'>{msg}</div>", unsafe_allow_html=True)
+
+# Quick buttons
+btn_col1, btn_col2, btn_col3 = st.columns(3)
+if btn_col1.button("Why is my dataset unhealthy?"):
+    st.session_state.chat_history.append(("user", "Why is my dataset unhealthy?"))
+    st.session_state.chat_history.append(("ai", ai_copilot_response("unhealthy", analytics)))
+    st.rerun()
+if btn_col2.button("Which columns to fix first?"):
+    st.session_state.chat_history.append(("user", "Which columns should I fix first?"))
+    st.session_state.chat_history.append(("ai", ai_copilot_response("fix first", analytics)))
+    st.rerun()
+if btn_col3.button("Explain recommendations"):
+    st.session_state.chat_history.append(("user", "Explain the cleaning recommendations."))
+    st.session_state.chat_history.append(("ai", ai_copilot_response("recommendations", analytics)))
+    st.rerun()
+
+user_input = st.text_input("Type your question here...", key="chat_input", label_visibility="collapsed")
+if st.button("Send") and user_input:
+    st.session_state.chat_history.append(("user", user_input))
+    st.session_state.chat_history.append(("ai", ai_copilot_response(user_input, analytics)))
+    st.rerun()
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+# ── Data Preview with Highlighting ────────────────────────────────────────────
+st.markdown("<div class='section-header'>Raw Data Explorer</div>", unsafe_allow_html=True)
+
+st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+# Pagination & Search
+search_col, page_col = st.columns([3, 1])
+with search_col:
+    search_term = st.text_input("🔍 Search in dataset...", "")
+with page_col:
+    page_size = st.selectbox("Rows per page", [10, 25, 50], index=0)
+
+# Filter data
+df_display = df_raw.copy()
+if search_term:
+    mask = df_display.apply(lambda row: row.astype(str).str.contains(search_term, case=False).any(), axis=1)
+    df_display = df_display[mask]
+
+# Pagination logic
+total_pages = max(1, len(df_display) // page_size + (1 if len(df_display) % page_size > 0 else 0))
+page = st.number_input("Page", 1, total_pages, 1)
+start_idx = (page - 1) * page_size
+end_idx = start_idx + page_size
+df_page = df_display.iloc[start_idx:end_idx]
+
+# Highlight missing values
+def highlight_missing(val):
+    if pd.isna(val) or (isinstance(val, str) and val.strip().lower() in ["", "n/a", "null", "none", "-", "tbd"]):
+        return 'background-color: #FEE2E2; color: #DC2626;'
+    return ''
+
+st.dataframe(
+    df_page.style.map(highlight_missing),
+    use_container_width=True,
+    height=400
+)
+st.markdown(f"<p style='color:#64748b; font-size:0.8rem; margin-top:10px;'>Showing rows {start_idx+1} to {min(end_idx, len(df_display))} of {len(df_display)} (Filtered from {len(df_raw)} total)</p>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# ── Process & Download Section ────────────────────────────────────────────────
+st.markdown("<div class='section-header'>Automated Cleaning Engine</div>", unsafe_allow_html=True)
+
+st.markdown("<div class='card' style='text-align:center; padding: 40px;'>", unsafe_allow_html=True)
+st.markdown("<h3 style='margin-top:0; color:#1e293b;'>Your Clean Dataset is Ready</h3>", unsafe_allow_html=True)
+st.markdown("<p style='color:#64748b;'>Click the button below to run the AI-powered cleaning engine. This will standardize formats, fix missing values, recalculate totals, and remove duplicates.</p>", unsafe_allow_html=True)
+
+if st.button("✨ Run AI Cleaning Engine"):
+    with st.spinner('Processing your data...'):
+        df_clean, report = clean_dataframe(df_raw.copy())
+        
+        # Store in session
+        st.session_state['df_clean'] = df_clean
+        st.session_state['report'] = report
+
+if 'df_clean' in st.session_state:
+    st.markdown("<div style='margin-top: 30px;'>", unsafe_allow_html=True)
+    st.markdown("<div class='badge badge-green' style='font-size: 1rem; padding: 8px 16px;'>✅ Cleaning Complete!</div>", unsafe_allow_html=True)
+    
+    df_clean = st.session_state['df_clean']
+    report = st.session_state['report']
+    
+    # Before/After metrics
+    bef_col, aft_col = st.columns(2)
+    with bef_col:
+        st.metric("Rows Before", report['original_shape'][0])
+    with aft_col:
+        st.metric("Rows After (Cleaned)", report['final_shape'][0], delta=f"-{report['duplicates_removed']} duplicates")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Export options
+    dl_col1, dl_col2 = st.columns(2)
+    
+    with dl_col1:
+        # Excel Export
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+        write_cleaned_excel(df_clean, report, tmp_path)
+        with open(tmp_path, "rb") as f:
+            excel_bytes = f.read()
+        os.unlink(tmp_path)
+        
+        st.download_button(
+            label="📊 Download Clean Excel",
+            data=excel_bytes,
+            file_name=f"cleaned_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        st.markdown(pills, unsafe_allow_html=True)
+    
+    with dl_col2:
+        # CSV Export
+        csv_data = df_clean.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📄 Download Clean CSV",
+            data=csv_data,
+            file_name=f"cleaned_data_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    if report.get("columns_renamed"):
-        st.markdown("**✏️ Column headers normalized**")
-        for old, new in report["columns_renamed"].items():
-            st.markdown(
-                f'<div class="rename-row">'
-                f'<span class="pill">{old}</span>'
-                f'<span class="arrow">→</span>'
-                f'<span class="new-name pill pill-ok">{new}</span>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-# ── Cleaned preview ───────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">Cleaned Data Preview</div>', unsafe_allow_html=True)
-st.dataframe(df_clean.head(50), use_container_width=True, height=260)
-
-# ── Outliers tab (if any) ─────────────────────────────────────────────────────
-if outlier_mask.any(axis=None):
-    with st.expander(f"🔎 View {int(outlier_mask.any(axis=1).sum())} outlier rows"):
-        flagged = df_clean[outlier_mask.any(axis=1)]
-        st.dataframe(flagged, use_container_width=True, height=200)
-
-# ── Download ──────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">Download</div>', unsafe_allow_html=True)
-
-output_buf = io.BytesIO()
-
-# write_cleaned_excel needs a file path; use a temp file approach
-import tempfile, os
-with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-    tmp_path = tmp.name
-
-write_cleaned_excel(df_clean, report, outlier_mask, tmp_path)
-with open(tmp_path, "rb") as f:
-    cleaned_bytes = f.read()
-os.unlink(tmp_path)
-
-base_name = os.path.splitext(uploaded.name)[0]
-out_name  = f"{base_name}_cleaned.xlsx"
-
-dl_col, info_col = st.columns([1, 2])
-with dl_col:
-    st.download_button(
-        label="⬇ Download Cleaned File",
-        data=cleaned_bytes,
-        file_name=out_name,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-with info_col:
-    st.markdown(f"""
-    <div style="color:#64748b; font-size:0.82rem; padding-top:0.6rem;">
-        Includes <strong style="color:#475569">3 sheets</strong>: 
-        Cleaned Data · Outliers · Cleaning Report<br>
-        <span style="font-family:'JetBrains Mono',monospace;">{out_name}</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown(f"""
-<div style="color:#94a3b8; font-size:0.72rem; text-align:center; margin-top:3rem;">
-    Cleaned at {datetime.now().strftime("%H:%M · %d %b %Y")}
-</div>
-""", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
