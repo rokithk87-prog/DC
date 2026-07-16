@@ -1,5 +1,5 @@
 """
-clean_excel.py — Core cleaning logic for Excel Cleaner Streamlit app.
+clean_excel.py — Core cleaning logic & analytics engine
 """
 
 import re
@@ -17,17 +17,13 @@ WORD_TO_NUM = {
 }
 
 COUNTRY_MAP = {
-    "usa": "USA", "us": "USA", 
-    "uk": "UK", "gb": "UK", 
-    "uae": "UAE",
-    "canada": "Canada", "ca": "Canada",
-    "germany": "Germany", "de": "Germany",
-    "france": "France", "fr": "France",
-    "australia": "Australia", "au": "Australia",
+    "usa": "USA", "us": "USA", "uk": "UK", "gb": "UK", "uae": "UAE",
+    "canada": "Canada", "ca": "Canada", "germany": "Germany", "de": "Germany",
+    "france": "France", "fr": "France", "australia": "Australia", "au": "Australia",
     "india": "India", "in": "India"
 }
 
-MISSING_PLACEHOLDERS = {"", "n/a", "null", "none", "-", "nan", "nil", "#n/a"}
+MISSING_PLACEHOLDERS = {"", "n/a", "null", "none", "-", "nan", "nil", "#n/a", "tbd"}
 
 def is_missing(val):
     if pd.isna(val):
@@ -44,33 +40,88 @@ def get_id_gen():
         return f"MISSING-{i:03d}"
     return gen
 
+# ── Analytics Engine ──────────────────────────────────────────────────────────
+
+def generate_analytics(df: pd.DataFrame):
+    """Compute data quality metrics for the dashboard."""
+    analytics = {}
+    
+    # Missing Values
+    missing_matrix = df.map(is_missing)
+    analytics['total_missing'] = int(missing_matrix.sum().sum())
+    analytics['missing_by_col'] = missing_matrix.sum().to_dict()
+    
+    # Duplicates
+    analytics['total_duplicates'] = int(df.duplicated().sum())
+    
+    # Columns Analyzed
+    analytics['total_columns'] = len(df.columns)
+    analytics['total_rows'] = len(df)
+    
+    # Invalid Emails
+    email_col = 'Email' if 'Email' in df.columns else None
+    invalid_emails = 0
+    if email_col:
+        for val in df[email_col]:
+            if not is_missing(val):
+                parts = str(val).split('@')
+                if len(parts) != 2 or '.' not in parts[-1] or '@@' in str(val):
+                    invalid_emails += 1
+    analytics['invalid_emails'] = invalid_emails
+    
+    # Invalid Phones
+    phone_col = 'Phone' if 'Phone' in df.columns else None
+    invalid_phones = 0
+    if phone_col:
+        for val in df[phone_col]:
+            if not is_missing(val):
+                digits = re.sub(r'\D', '', str(val))
+                if len(digits) not in [10, 11]:
+                    invalid_phones += 1
+    analytics['invalid_phones'] = invalid_phones
+    
+    # Outliers (IQR on numeric cols)
+    outliers = {}
+    total_outliers = 0
+    for col in df.select_dtypes(include=[np.number]).columns:
+        q1 = df[col].quantile(0.25)
+        q3 = df[col].quantile(0.75)
+        iqr = q3 - q1
+        if iqr > 0:
+            mask = (df[col] < (q1 - 3 * iqr)) | (df[col] > (q3 + 3 * iqr))
+            count = int(mask.sum())
+            if count > 0:
+                outliers[col] = count
+                total_outliers += count
+    analytics['outliers'] = outliers
+    analytics['total_outliers'] = total_outliers
+    
+    # Health Score (100 - penalties)
+    penalty = 0
+    if len(df) > 0:
+        penalty += (analytics['total_missing'] / (len(df) * len(df.columns))) * 50
+        penalty += (analytics['total_duplicates'] / len(df)) * 20
+        penalty += (analytics['total_outliers'] / len(df)) * 10
+        penalty += (analytics['invalid_emails'] / len(df)) * 10
+        penalty += (analytics['invalid_phones'] / len(df)) * 10
+        
+    analytics['health_score'] = int(max(0, 100 - penalty * 100))
+    
+    return analytics
+
 # ── Main cleaning function ────────────────────────────────────────────────────
 
 def clean_dataframe(df: pd.DataFrame):
-    """
-    Clean *df* in-place (caller should pass a copy).
-
-    Returns
-    -------
-    df_clean    : pd.DataFrame
-    report      : dict
-    outlier_mask: pd.DataFrame (bool, same shape as df_clean)
-    """
     report = {
         "original_shape": df.shape,
         "final_shape": df.shape,
         "duplicates_removed": 0,
         "empty_rows_removed": 0,
         "empty_cols_removed": 0,
-        "columns_renamed": {},
-        "date_cols_detected": [],
-        "numeric_cols_converted": [],
-        "outliers_flagged": {},
         "fixed_counts": {}
     }
     
     df.columns = [str(c).strip() for c in df.columns]
-
     before_rows = len(df)
     df.dropna(how="all", inplace=True)
     report["blank_rows_removed"] = before_rows - len(df)
@@ -79,12 +130,7 @@ def clean_dataframe(df: pd.DataFrame):
     df.drop_duplicates(inplace=True)
     report["duplicates_removed"] = before_dupes - len(df)
 
-    fixed_counts = {
-        'Order ID': 0, 'Customer Name': 0, 'Email': 0, 'Phone': 0, 'Country': 0,
-        'Order Date': 0, 'Product': 0, 'Quantity': 0, 'Unit Price': 0, 'Total': 0,
-        'Status': 0, 'Sales Rep': 0
-    }
-
+    fixed_counts = {col: 0 for col in df.columns}
     missing_id_gen = get_id_gen()
     cleaned_rows = []
 
@@ -104,20 +150,16 @@ def clean_dataframe(df: pd.DataFrame):
                 fixed.add('Order ID')
             oid = cleaned_oid
 
-        # ── Email ── (Leave blank if missing/invalid)
+        # ── Email ──
         email = row.get('Email', np.nan)
         if is_missing(email):
             email = None
         else:
             cleaned_email = str(email).strip().lower()
             valid = True
-            if "@@" in cleaned_email:
-                valid = False
+            if "@@" in cleaned_email: valid = False
             parts = cleaned_email.split('@')
-            if len(parts) != 2 or not parts[0] or not parts[1]:
-                valid = False
-            if '.' not in parts[-1]:
-                valid = False
+            if len(parts) != 2 or not parts[0] or not parts[1] or '.' not in parts[-1]: valid = False
 
             if not valid:
                 email = None
@@ -125,18 +167,17 @@ def clean_dataframe(df: pd.DataFrame):
                 fixed.add('Email')
                 email = cleaned_email
 
-        # ── Customer Name ── (Derive from email if missing)
+        # ── Customer Name ──
         cname = row.get('Customer Name', np.nan)
         if is_missing(cname):
-            if email:  # Try to derive from email
+            if email:  # Derive from email
                 prefix = str(email).split('@')[0]
                 clean_prefix = re.sub(r'[._\-+]', ' ', prefix).strip()
                 if clean_prefix:
                     cname = clean_prefix.title()
                     issues.append("Derived customer name from email")
                     fixed.add('Customer Name')
-            
-            if is_missing(cname):  # Still missing
+            if is_missing(cname):
                 issues.append("Missing customer name")
                 fixed.add('Customer Name')
                 cname = "Unknown Customer"
@@ -146,7 +187,7 @@ def clean_dataframe(df: pd.DataFrame):
                 fixed.add('Customer Name')
             cname = cleaned_cname
 
-        # ── Phone ── (Leave blank if missing/N/A/invalid)
+        # ── Phone ──
         phone = row.get('Phone', np.nan)
         if is_missing(phone):
             phone = None
@@ -156,13 +197,11 @@ def clean_dataframe(df: pd.DataFrame):
                 phone = None
             elif len(digits) == 10:
                 cleaned_phone = f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
-                if cleaned_phone != str(phone).strip():
-                    fixed.add('Phone')
+                if cleaned_phone != str(phone).strip(): fixed.add('Phone')
                 phone = cleaned_phone
             elif len(digits) == 11 and digits.startswith('1'):
                 cleaned_phone = f"+1-{digits[1:4]}-{digits[4:7]}-{digits[7:]}"
-                if cleaned_phone != str(phone).strip():
-                    fixed.add('Phone')
+                if cleaned_phone != str(phone).strip(): fixed.add('Phone')
                 phone = cleaned_phone
             else:
                 phone = None
@@ -175,12 +214,8 @@ def clean_dataframe(df: pd.DataFrame):
             country = "Unknown"
         else:
             c = str(country).strip().lower()
-            if c in COUNTRY_MAP:
-                cleaned_country = COUNTRY_MAP[c]
-            else:
-                cleaned_country = str(country).strip().title()
-            if cleaned_country != str(country).strip():
-                fixed.add('Country')
+            cleaned_country = COUNTRY_MAP.get(c, str(country).strip().title())
+            if cleaned_country != str(country).strip(): fixed.add('Country')
             country = cleaned_country
 
         # ── Order Date ──
@@ -192,22 +227,19 @@ def clean_dataframe(df: pd.DataFrame):
         else:
             odate_str = str(odate).strip()
             parsed_date = pd.NaT
-
             match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', odate_str)
             if match and int(match.group(1)) > 12:
                 parsed_date = pd.to_datetime(odate_str, dayfirst=True, errors='coerce')
             else:
                 parsed_date = pd.to_datetime(odate_str, errors='coerce')
-                if pd.isna(parsed_date):
-                    parsed_date = pd.to_datetime(odate_str, dayfirst=True, errors='coerce')
+                if pd.isna(parsed_date): parsed_date = pd.to_datetime(odate_str, dayfirst=True, errors='coerce')
 
             if pd.isna(parsed_date):
                 issues.append("Invalid date")
                 fixed.add('Order Date')
                 odate = pd.Timestamp("1900-01-01")
             else:
-                if parsed_date.strftime("%Y-%m-%d") != odate_str:
-                    fixed.add('Order Date')
+                if parsed_date.strftime("%Y-%m-%d") != odate_str: fixed.add('Order Date')
                 odate = parsed_date
 
         # ── Product ──
@@ -218,8 +250,7 @@ def clean_dataframe(df: pd.DataFrame):
             prod = "Unknown Product"
         else:
             cleaned_prod = str(prod).strip().title()
-            if cleaned_prod != str(prod).strip():
-                fixed.add('Product')
+            if cleaned_prod != str(prod).strip(): fixed.add('Product')
             prod = cleaned_prod
 
         # ── Quantity ──
@@ -235,20 +266,11 @@ def clean_dataframe(df: pd.DataFrame):
                 qty = WORD_TO_NUM[qty_str]
             else:
                 try:
-                    val_str = qty_str.replace(',', '')
-                    val = float(val_str)
-                    if val < 0:
-                        fixed.add('Quantity')
-                        val = abs(val)
-                    if val == 0:
-                        issues.append("Assumed quantity=1")
-                        fixed.add('Quantity')
-                        val = 1
-                    if not val.is_integer():
-                        fixed.add('Quantity')
+                    val = float(qty_str.replace(',', ''))
+                    if val < 0: val = abs(val); fixed.add('Quantity')
+                    if val == 0: val = 1; issues.append("Assumed quantity=1"); fixed.add('Quantity')
                     cleaned_qty = int(val)
-                    if qty_str != str(cleaned_qty):
-                        fixed.add('Quantity')
+                    if qty_str != str(cleaned_qty): fixed.add('Quantity')
                     qty = cleaned_qty
                 except ValueError:
                     issues.append("Assumed quantity=1")
@@ -257,7 +279,7 @@ def clean_dataframe(df: pd.DataFrame):
 
         # ── Unit Price ──
         uprice = row.get('Unit Price', np.nan)
-        if is_missing(uprice) or str(uprice).strip().upper() == "TBD":
+        if is_missing(uprice):
             issues.append("Assumed unit price=0.0")
             fixed.add('Unit Price')
             uprice = 0.0
@@ -266,20 +288,12 @@ def clean_dataframe(df: pd.DataFrame):
             cleaned_up_str = re.sub(r'[\$£€]', '', up_str)
             cleaned_up_str = re.sub(r'\busd\b|\baed\b|\bgbp\b|\beur\b', '', cleaned_up_str)
             cleaned_up_str = cleaned_up_str.replace(',', '').strip()
-
             try:
                 val = float(cleaned_up_str)
-                if val < 0:
-                    fixed.add('Unit Price')
-                    val = abs(val)
-
+                if val < 0: val = abs(val); fixed.add('Unit Price')
                 cleaned_up = round(val, 2)
-                if cleaned_up == 0.0:
-                    issues.append("Assumed unit price=0.0")
-                    fixed.add('Unit Price')
-
-                if str(uprice).strip().lower() != f"{cleaned_up:.2f}":
-                    fixed.add('Unit Price')
+                if cleaned_up == 0.0: issues.append("Assumed unit price=0.0"); fixed.add('Unit Price')
+                if str(uprice).strip().lower() != f"{cleaned_up:.2f}": fixed.add('Unit Price')
                 uprice = cleaned_up
             except ValueError:
                 issues.append("Assumed unit price=0.0")
@@ -289,22 +303,14 @@ def clean_dataframe(df: pd.DataFrame):
         # ── Total ── (Always Recalculate)
         total_orig = row.get('Total', np.nan)
         total = round(qty * uprice, 2)
-
-        if is_missing(total_orig) or str(total_orig).strip().upper() == "TBD":
+        if is_missing(total_orig):
             fixed.add('Total')
         else:
-            tot_str = str(total_orig).strip().lower()
-            tot_str_clean = re.sub(r'[\$£€]', '', tot_str)
-            tot_str_clean = re.sub(r'\busd\b|\baed\b|\bgbp\b|\beur\b', '', tot_str_clean)
-            tot_str_clean = tot_str_clean.replace(',', '').strip()
-
+            tot_str_clean = re.sub(r'[\$£€]', '', str(total_orig).strip().lower())
+            tot_str_clean = re.sub(r'\busd\b|\baed\b|\bgbp\b|\beur\b', '', tot_str_clean).replace(',', '').strip()
             try:
-                val = float(tot_str_clean)
-                val_rounded = round(abs(val), 2)
-                if val_rounded != total or val < 0:
-                    fixed.add('Total')
-                if tot_str != f"{total:.2f}":
-                    fixed.add('Total')
+                val_rounded = round(abs(float(tot_str_clean)), 2)
+                if val_rounded != total: fixed.add('Total')
             except ValueError:
                 fixed.add('Total')
 
@@ -312,7 +318,6 @@ def clean_dataframe(df: pd.DataFrame):
         status = row.get('Status', np.nan)
         valid_statuses = {"Completed", "Pending", "Shipped", "Refunded", "Cancelled"}
         st_raw = str(status).strip() if not is_missing(status) else ""
-
         if is_missing(status) or st_raw in {"???", "NULL"}:
             issues.append("Unknown status")
             fixed.add('Status')
@@ -320,8 +325,7 @@ def clean_dataframe(df: pd.DataFrame):
         else:
             st = st_raw.title()
             if st in valid_statuses:
-                if st != st_raw:
-                    fixed.add('Status')
+                if st != st_raw: fixed.add('Status')
                 status = st
             else:
                 issues.append("Unknown status")
@@ -336,13 +340,11 @@ def clean_dataframe(df: pd.DataFrame):
             srep = "Unassigned"
         else:
             cleaned_srep = str(srep).strip().title()
-            if cleaned_srep != str(srep).strip():
-                fixed.add('Sales Rep')
+            if cleaned_srep != str(srep).strip(): fixed.add('Sales Rep')
             srep = cleaned_srep
 
         for col in fixed:
-            if col in fixed_counts:
-                fixed_counts[col] += 1
+            if col in fixed_counts: fixed_counts[col] += 1
 
         cleaned_rows.append([
             oid, cname, email, phone, country, odate, prod, qty, uprice, total, status, srep, ", ".join(issues)
@@ -353,7 +355,6 @@ def clean_dataframe(df: pd.DataFrame):
         'Product', 'Quantity', 'Unit Price', 'Total', 'Status', 'Sales Rep', 'Data Quality Issues'
     ])
     
-    # Ensure strict data types for Excel native formatting
     cleaned_df['Order Date'] = pd.to_datetime(cleaned_df['Order Date'], errors='coerce')
     cleaned_df['Quantity'] = pd.to_numeric(cleaned_df['Quantity'], errors='coerce').astype(int)
     cleaned_df['Unit Price'] = pd.to_numeric(cleaned_df['Unit Price'], errors='coerce').astype(float)
@@ -361,12 +362,8 @@ def clean_dataframe(df: pd.DataFrame):
 
     report["fixed_counts"] = fixed_counts
     report["final_shape"] = cleaned_df.shape
-    report["outliers_flagged"] = {} 
     
-    outlier_mask = pd.DataFrame(False, index=cleaned_df.index, columns=cleaned_df.columns)
-
-    return cleaned_df, report, outlier_mask
-
+    return cleaned_df, report
 
 # ── Excel writer ──────────────────────────────────────────────────────────────
 
@@ -375,114 +372,63 @@ def _auto_width(ws):
         max_len = 0
         col_letter = get_column_letter(col[0].column)
         for cell in col:
-            try:
-                max_len = max(max_len, len(str(cell.value or "")))
-            except Exception:
-                pass
+            try: max_len = max(max_len, len(str(cell.value or "")))
+            except: pass
         ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 40)
 
-def _df_to_sheet(ws, df: pd.DataFrame):
-    """Write df to ws with standard Excel formatting."""
-    # Write header
-    for j, col in enumerate(df.columns, 1):
-        cell = ws.cell(row=1, column=j, value=str(col))
+def write_cleaned_excel(df_clean: pd.DataFrame, report: dict, path: str):
+    wb = Workbook()
+
+    # Sheet 1: Cleaned Data
+    ws1 = wb.active
+    ws1.title = "Cleaned Data"
+    ws1.sheet_view.showGridLines = True
+    for j, col in enumerate(df_clean.columns, 1):
+        cell = ws1.cell(row=1, column=j, value=str(col))
         cell.fill = PatternFill("solid", fgColor="F1F5F9")
         cell.font = Font(bold=True, color="1E293B", name="Calibri", size=11)
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Write data
-    for i, (_, row) in enumerate(df.iterrows(), 2):
-        for j, col in enumerate(df.columns, 1):
+    for i, (_, row) in enumerate(df_clean.iterrows(), 2):
+        for j, col in enumerate(df_clean.columns, 1):
             val = row[col]
-            if pd.isna(val):
-                val = None
-            elif isinstance(val, pd.Timestamp):
-                val = val.to_pydatetime()
-                
-            cell = ws.cell(row=i, column=j, value=val)
-            
-            # Apply specific Excel number formats
-            if col == 'Order Date' and val is not None:
-                cell.number_format = 'YYYY-MM-DD'
-            elif col == 'Quantity' and val is not None:
-                cell.number_format = '0'
-            elif col in ['Unit Price', 'Total'] and val is not None:
-                cell.number_format = '0.00'
+            if pd.isna(val): val = None
+            elif isinstance(val, pd.Timestamp): val = val.to_pydatetime()
+            cell = ws1.cell(row=i, column=j, value=val)
+            if col == 'Order Date' and val: cell.number_format = 'YYYY-MM-DD'
+            elif col == 'Quantity' and val: cell.number_format = '0'
+            elif col in ['Unit Price', 'Total'] and val: cell.number_format = '0.00'
+    ws1.freeze_panes = "A2"
+    _auto_width(ws1)
 
-    ws.freeze_panes = "A2"
-    _auto_width(ws)
-
-def write_cleaned_excel(
-    df_clean: pd.DataFrame,
-    report: dict,
-    outlier_mask: pd.DataFrame,
-    path: str,
-):
-    """Write a 3-sheet Excel workbook: Cleaned Data, Outliers, Cleaning Report."""
-    wb = Workbook()
-
-    # ── Sheet 1: Cleaned Data ─────────────────────────────────────────────────
-    ws1 = wb.active
-    ws1.title = "Cleaned Data"
-    ws1.sheet_view.showGridLines = True
-    _df_to_sheet(ws1, df_clean)
-
-    # ── Sheet 2: Outliers ─────────────────────────────────────────────────────
-    ws2 = wb.create_sheet("Outliers")
-    ws2.sheet_view.showGridLines = True
-    outlier_rows = df_clean[outlier_mask.any(axis=1)].copy()
-    if outlier_rows.empty:
-        ws2.cell(row=1, column=1, value="No outliers detected.")
-    else:
-        _df_to_sheet(ws2, outlier_rows)
-
-    # ── Sheet 3: Cleaning Report ───────────────────────────────────────────────
+    # Sheet 2: Cleaning Report
     ws3 = wb.create_sheet("Cleaning Report")
     ws3.sheet_view.showGridLines = False
-
     fill_hdr = PatternFill("solid", fgColor="F1F5F9")
-    fill_row = PatternFill("solid", fgColor="FFFFFF")
     font_hdr = Font(bold=True, color="2563EB", name="Calibri", size=11)
-    font_val = Font(color="475569", name="Calibri", size=11)
     font_key = Font(bold=True, color="1E293B", name="Calibri", size=11)
-
-    def _write(r, c, val, bold=False, header=False):
-        cell = ws3.cell(row=r, column=c, value=val)
-        cell.fill = fill_hdr if header else fill_row
-        cell.font = font_hdr if header else (font_key if bold else font_val)
-        cell.alignment = Alignment(vertical="center")
-        return cell
+    font_val = Font(color="475569", name="Calibri", size=11)
 
     rows = [
         ("Metric", "Value"),
         ("Original rows", report["original_shape"][0]),
-        ("Original columns", report["original_shape"][1]),
         ("Final rows", report["final_shape"][0]),
-        ("Final columns", report["final_shape"][1]),
         ("Duplicates removed", report["duplicates_removed"]),
-        ("Empty rows removed", report["empty_rows_removed"]),
-        ("Empty columns removed", report["empty_cols_removed"]),
-        ("Date columns detected", ", ".join(report.get("date_cols_detected", [])) or "None"),
-        ("Numeric cols converted", ", ".join(report.get("numeric_cols_converted", [])) or "None"),
-        ("Columns renamed", str(report.get("columns_renamed", {})) if report.get("columns_renamed") else "None"),
-        ("Outliers flagged", str(report.get("outliers_flagged", {})) if report.get("outliers_flagged") else "None"),
         ("", ""),
         ("Cells Fixed Per Column", ""),
     ]
-
     for col, count in report.get("fixed_counts", {}).items():
         rows.append((col, count))
 
     for r_idx, (key, val) in enumerate(rows, 1):
-        header = r_idx == 1
-        _write(r_idx, 1, key, bold=not header, header=header)
-        _write(r_idx, 2, val, header=header)
+        c1 = ws3.cell(row=r_idx, column=1, value=key)
+        c2 = ws3.cell(row=r_idx, column=2, value=val)
+        if r_idx == 1:
+            c1.fill = fill_hdr; c1.font = font_hdr
+            c2.fill = fill_hdr; c2.font = font_hdr
+        else:
+            c1.font = font_key; c2.font = font_val
 
     ws3.column_dimensions["A"].width = 30
     ws3.column_dimensions["B"].width = 60
-    ws3.freeze_panes = "A2"
-
     wb.save(path)
-
-# Aliases
-write_output = write_cleaned_excel
