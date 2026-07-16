@@ -1,5 +1,5 @@
 """
-AI Excel Data Quality Assistant — Premium Streamlit UI
+AI Excel Data Quality Assistant — Premium Streamlit UI (Forced Light Theme)
 """
 
 import streamlit as st
@@ -8,9 +8,6 @@ import numpy as np
 import io
 import os
 import tempfile
-import plotly.graph_objects as go
-import plotly.express as px
-import base64
 from datetime import datetime
 from clean_excel import clean_dataframe, generate_analytics, write_cleaned_excel
 
@@ -22,14 +19,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Premium CSS Styling ───────────────────────────────────────────────────────
+# ── Premium CSS Styling (Forced Light Mode) ───────────────────────────────────
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
-    html, body, [class*="css"] {
+    /* FORCE LIGHT THEME GLOBALLY */
+    html, body, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {
         font-family: 'Inter', sans-serif;
-        color: #0f172a;
+        background-color: #F8FAFC !important;
+        color: #0f172a !important;
+    }
+    [data-testid="stAppViewBlockContainer"] {
+        background-color: #F8FAFC !important;
     }
 
     /* Hide Streamlit Branding */
@@ -124,7 +126,7 @@ st.markdown("""
 
     /* Upload Area */
     [data-testid="stFileUploader"] {
-        background: #f8fafc;
+        background: #ffffff;
         border: 2px dashed #cbd5e1;
         border-radius: 12px;
         padding: 20px;
@@ -135,9 +137,9 @@ st.markdown("""
     }
 
     /* Buttons */
-    .stButton > button {
+    .stButton > button, .stDownloadButton > button {
         background: #2563EB;
-        color: white;
+        color: white !important;
         border: none;
         border-radius: 8px;
         padding: 0.6rem 1.5rem;
@@ -146,20 +148,11 @@ st.markdown("""
         transition: all 0.2s;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
     }
-    .stButton > button:hover {
+    .stButton > button:hover, .stDownloadButton > button:hover {
         background: #1D4ED8;
         transform: translateY(-1px);
         box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
-    }
-    .stDownloadButton > button {
-        background: #ffffff;
-        color: #2563EB;
-        border: 1px solid #2563EB;
-        box-shadow: none;
-    }
-    .stDownloadButton > button:hover {
-        background: #eff6ff;
-        border-color: #1D4ED8;
+        color: white !important;
     }
 
     /* Chat */
@@ -183,24 +176,18 @@ st.markdown("""
         border-bottom-left-radius: 2px;
     }
     
-    /* Tables */
-    .dataframe {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85rem;
+    /* Streamlit Native Elements Fixes for Light Mode */
+    .stTextInput > div > div > input {
+        background-color: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
     }
-    .dataframe th {
-        background: #f8fafc;
-        padding: 12px;
-        text-align: left;
-        font-weight: 600;
-        border-bottom: 2px solid #e2e8f0;
-        color: #475569;
-    }
-    .dataframe td {
-        padding: 10px 12px;
-        border-bottom: 1px solid #f1f5f9;
-        color: #334155;
+    .stSelectbox > div > div > div {
+        background-color: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
     }
     
     /* Badges */
@@ -219,52 +206,30 @@ st.markdown("""
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
 
-def create_gauge_chart(score):
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = score,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        number = {'font': {'size': 40, 'color': '#2563EB'}},
-        gauge = {
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#e2e8f0"},
-            'bar': {'color': "#2563EB"},
-            'bgcolor': "white",
-            'borderwidth': 2,
-            'bordercolor': "#e2e8f0",
-            'steps': [
-                {'range': [0, 50], 'color': '#FEE2E2'},
-                {'range': [50, 80], 'color': '#FEF3C7'},
-                {'range': [80, 100], 'color': '#D1FAE5'}
-            ],
-            'threshold': {
-                'line': {'color': "#0f172a", 'width': 4},
-                'thickness': 0.75,
-                'value': score
-            }
-        }
-    ))
-    fig.update_layout(height=250, margin=dict(l=20, r=20, t=0, b=20))
-    return fig
+def create_gauge_chart_native(score):
+    """Native Streamlit gauge using metric and progress bar."""
+    color = "#DC2626" if score < 50 else "#F59E0B" if score < 80 else "#16A34A"
+    st.markdown(f"""
+    <div style="text-align: center; padding: 20px 0;">
+        <div style="font-size: 4rem; font-weight: 800; color: {color}; font-family: 'JetBrains Mono', monospace;">{score}</div>
+        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 15px;">out of 100</div>
+        <div style="background: #f1f5f9; border-radius: 20px; height: 12px; width: 100%; overflow: hidden;">
+            <div style="background: {color}; height: 100%; width: {score}%; border-radius: 20px; transition: width 0.5s;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-def create_missing_heatmap(df):
+def create_missing_chart_native(df):
+    """Native Streamlit bar chart for missing values."""
     missing_df = df.isna().sum().to_frame(name='Missing Count')
     missing_df['Percentage'] = (missing_df['Missing Count'] / len(df)) * 100
     missing_df = missing_df[missing_df['Missing Count'] > 0].sort_values('Percentage', ascending=True)
     
     if missing_df.empty:
-        return None
+        st.markdown("<div style='text-align:center; padding:3rem; color:#16A34A;'>✅ No missing values detected!</div>", unsafe_allow_html=True)
+        return
     
-    fig = px.bar(
-        missing_df, 
-        x='Percentage', 
-        y=missing_df.index,
-        orientation='h',
-        labels={'Percentage': '% Missing', 'index': 'Column'},
-        color='Percentage',
-        color_continuous_scale=['#10B981', '#F59E0B', '#EF4444']
-    )
-    fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), plot_bgcolor='white', paper_bgcolor='white')
-    return fig
+    st.bar_chart(missing_df[['Percentage']], color="#2563EB", height=300)
 
 def ai_copilot_response(question, analytics):
     q = question.lower()
@@ -348,29 +313,25 @@ with kpi5:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Visualizations ────────────────────────────────────────────────────────────
+# ── Visualizations (Native Streamlit) ─────────────────────────────────────────
 viz1, viz2 = st.columns([1, 2])
 
 with viz1:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("<h3 style='margin-top:0; color:#1e293b;'>Data Quality Score</h3>", unsafe_allow_html=True)
-    st.plotly_chart(create_gauge_chart(analytics['health_score']), use_container_width=True)
+    create_gauge_chart_native(analytics['health_score'])
     st.markdown("</div>", unsafe_allow_html=True)
 
 with viz2:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("<h3 style='margin-top:0; color:#1e293b;'>Missing Value Analysis</h3>", unsafe_allow_html=True)
-    heatmap = create_missing_heatmap(df_raw)
-    if heatmap:
-        st.plotly_chart(heatmap, use_container_width=True)
-    else:
-        st.markdown("<div style='text-align:center; padding:3rem; color:#16A34A;'>✅ No missing values detected!</div>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-top:0; color:#1e293b;'>Missing Value Analysis (%)</h3>", unsafe_allow_html=True)
+    create_missing_chart_native(df_raw)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ── AI Data Copilot ───────────────────────────────────────────────────────────
 st.markdown("<div class='section-header'>AI Data Quality Copilot</div>", unsafe_allow_html=True)
 
-st.markdown("<div class='card' style='background:#f8fafc; border-color:#e2e8f0;'>", unsafe_allow_html=True)
+st.markdown("<div class='card' style='background:#ffffff; border-color:#e2e8f0;'>", unsafe_allow_html=True)
 st.markdown("<h3 style='margin-top:0; color:#1e293b;'>💬 Ask our AI about your dataset</h3>", unsafe_allow_html=True)
 
 # Chat History
@@ -455,8 +416,6 @@ st.markdown("<p style='color:#64748b;'>Click the button below to run the AI-powe
 if st.button("✨ Run AI Cleaning Engine"):
     with st.spinner('Processing your data...'):
         df_clean, report = clean_dataframe(df_raw.copy())
-        
-        # Store in session
         st.session_state['df_clean'] = df_clean
         st.session_state['report'] = report
 
