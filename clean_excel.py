@@ -96,16 +96,17 @@ def generate_analytics(df: pd.DataFrame):
     analytics['outliers'] = outliers
     analytics['total_outliers'] = total_outliers
     
-    # Health Score (100 - penalties)
+    # Health Score (100 - penalties) - FIXED CALCULATION
     penalty = 0
     if len(df) > 0:
-        penalty += (analytics['total_missing'] / (len(df) * len(df.columns))) * 50
-        penalty += (analytics['total_duplicates'] / len(df)) * 20
-        penalty += (analytics['total_outliers'] / len(df)) * 10
-        penalty += (analytics['invalid_emails'] / len(df)) * 10
-        penalty += (analytics['invalid_phones'] / len(df)) * 10
+        total_cells = len(df) * len(df.columns)
+        penalty += (analytics['total_missing'] / total_cells) * 50  # 50% weight
+        penalty += (analytics['total_duplicates'] / len(df)) * 20  # 20% weight
+        penalty += (analytics['total_outliers'] / len(df)) * 10    # 10% weight
+        penalty += (analytics['invalid_emails'] / len(df)) * 10    # 10% weight
+        penalty += (analytics['invalid_phones'] / len(df)) * 10    # 10% weight
         
-    analytics['health_score'] = int(max(0, 100 - penalty * 100))
+    analytics['health_score'] = int(max(0, 100 - penalty))
     
     return analytics
 
