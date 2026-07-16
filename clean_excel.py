@@ -104,24 +104,10 @@ def clean_dataframe(df: pd.DataFrame):
                 fixed.add('Order ID')
             oid = cleaned_oid
 
-        # ── Customer Name ──
-        cname = row.get('Customer Name', np.nan)
-        if is_missing(cname):
-            issues.append("Missing customer name")
-            fixed.add('Customer Name')
-            cname = "Unknown Customer"
-        else:
-            cleaned_cname = str(cname).strip().title()
-            if cleaned_cname != str(cname).strip():
-                fixed.add('Customer Name')
-            cname = cleaned_cname
-
-        # ── Email ──
+        # ── Email ── (Leave blank if missing/invalid)
         email = row.get('Email', np.nan)
         if is_missing(email):
-            issues.append("Missing email")
-            fixed.add('Email')
-            email = "missing@unknown.com"
+            email = None
         else:
             cleaned_email = str(email).strip().lower()
             valid = True
@@ -134,24 +120,40 @@ def clean_dataframe(df: pd.DataFrame):
                 valid = False
 
             if not valid:
-                issues.append("Invalid email")
-                fixed.add('Email')
-                email = "invalid@unknown.com"
+                email = None
             elif cleaned_email != str(email).strip().lower():
                 fixed.add('Email')
+                email = cleaned_email
 
-        # ── Phone ──
+        # ── Customer Name ── (Derive from email if missing)
+        cname = row.get('Customer Name', np.nan)
+        if is_missing(cname):
+            if email:  # Try to derive from email
+                prefix = str(email).split('@')[0]
+                clean_prefix = re.sub(r'[._\-+]', ' ', prefix).strip()
+                if clean_prefix:
+                    cname = clean_prefix.title()
+                    issues.append("Derived customer name from email")
+                    fixed.add('Customer Name')
+            
+            if is_missing(cname):  # Still missing
+                issues.append("Missing customer name")
+                fixed.add('Customer Name')
+                cname = "Unknown Customer"
+        else:
+            cleaned_cname = str(cname).strip().title()
+            if cleaned_cname != str(cname).strip():
+                fixed.add('Customer Name')
+            cname = cleaned_cname
+
+        # ── Phone ── (Leave blank if missing/N/A/invalid)
         phone = row.get('Phone', np.nan)
         if is_missing(phone):
-            issues.append("Missing phone")
-            fixed.add('Phone')
-            phone = "N/A"
+            phone = None
         else:
             digits = re.sub(r'\D', '', str(phone))
             if digits == "0000000000" or str(phone).strip() == "000-000-0000":
-                issues.append("Missing phone")
-                fixed.add('Phone')
-                phone = "N/A"
+                phone = None
             elif len(digits) == 10:
                 cleaned_phone = f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
                 if cleaned_phone != str(phone).strip():
@@ -163,9 +165,7 @@ def clean_dataframe(df: pd.DataFrame):
                     fixed.add('Phone')
                 phone = cleaned_phone
             else:
-                issues.append("Invalid phone")
-                fixed.add('Phone')
-                phone = "N/A"
+                phone = None
 
         # ── Country ──
         country = row.get('Country', np.nan)
@@ -188,7 +188,7 @@ def clean_dataframe(df: pd.DataFrame):
         if is_missing(odate):
             issues.append("Missing date")
             fixed.add('Order Date')
-            odate = "1900-01-01"
+            odate = pd.Timestamp("1900-01-01")
         else:
             odate_str = str(odate).strip()
             parsed_date = pd.NaT
@@ -204,12 +204,11 @@ def clean_dataframe(df: pd.DataFrame):
             if pd.isna(parsed_date):
                 issues.append("Invalid date")
                 fixed.add('Order Date')
-                odate = "1900-01-01"
+                odate = pd.Timestamp("1900-01-01")
             else:
-                cleaned_odate = parsed_date.strftime("%Y-%m-%d")
-                if cleaned_odate != odate_str:
+                if parsed_date.strftime("%Y-%m-%d") != odate_str:
                     fixed.add('Order Date')
-                odate = cleaned_odate
+                odate = parsed_date
 
         # ── Product ──
         prod = row.get('Product', np.nan)
@@ -287,7 +286,7 @@ def clean_dataframe(df: pd.DataFrame):
                 fixed.add('Unit Price')
                 uprice = 0.0
 
-        # ── Total ──
+        # ── Total ── (Always Recalculate)
         total_orig = row.get('Total', np.nan)
         total = round(qty * uprice, 2)
 
@@ -354,34 +353,22 @@ def clean_dataframe(df: pd.DataFrame):
         'Product', 'Quantity', 'Unit Price', 'Total', 'Status', 'Sales Rep', 'Data Quality Issues'
     ])
     
+    # Ensure strict data types for Excel native formatting
+    cleaned_df['Order Date'] = pd.to_datetime(cleaned_df['Order Date'], errors='coerce')
     cleaned_df['Quantity'] = pd.to_numeric(cleaned_df['Quantity'], errors='coerce').astype(int)
-    cleaned_df['Unit Price'] = pd.to_numeric(cleaned_df['Unit Price'], errors='coerce')
-    cleaned_df['Total'] = pd.to_numeric(cleaned_df['Total'], errors='coerce')
+    cleaned_df['Unit Price'] = pd.to_numeric(cleaned_df['Unit Price'], errors='coerce').astype(float)
+    cleaned_df['Total'] = pd.to_numeric(cleaned_df['Total'], errors='coerce').astype(float)
 
     report["fixed_counts"] = fixed_counts
     report["final_shape"] = cleaned_df.shape
-    report["outliers_flagged"] = {}  # Not used in strict rules
+    report["outliers_flagged"] = {} 
     
-    # Return an empty outlier_mask to maintain compatibility with app.py and write_cleaned_excel
     outlier_mask = pd.DataFrame(False, index=cleaned_df.index, columns=cleaned_df.columns)
 
     return cleaned_df, report, outlier_mask
 
 
 # ── Excel writer ──────────────────────────────────────────────────────────────
-
-def _header_style(ws, n_cols: int):
-    fill = PatternFill("solid", fgColor="1E293B")
-    font = Font(bold=True, color="F1F5F9", name="Calibri", size=10)
-    align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    thin = Side(style="thin", color="334155")
-    border = Border(bottom=thin)
-    for col_idx in range(1, n_cols + 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.fill = fill
-        cell.font = font
-        cell.alignment = align
-        cell.border = border
 
 def _auto_width(ws):
     for col in ws.columns:
@@ -394,33 +381,33 @@ def _auto_width(ws):
                 pass
         ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 40)
 
-# FIX: Removed `pd.DataFrame | None` type hint for Python 3.8/3.9 compatibility
-def _df_to_sheet(ws, df: pd.DataFrame, *, highlight_mask=None):
-    """Write df to ws with optional cell highlighting."""
+def _df_to_sheet(ws, df: pd.DataFrame):
+    """Write df to ws with standard Excel formatting."""
+    # Write header
     for j, col in enumerate(df.columns, 1):
-        ws.cell(row=1, column=j, value=str(col))
-    _header_style(ws, len(df.columns))
+        cell = ws.cell(row=1, column=j, value=str(col))
+        cell.fill = PatternFill("solid", fgColor="F1F5F9")
+        cell.font = Font(bold=True, color="1E293B", name="Calibri", size=11)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    orange_fill = PatternFill("solid", fgColor="7C2D12")
-    alt_fill    = PatternFill("solid", fgColor="0F172A")
-    alt_fill2   = PatternFill("solid", fgColor="0F1D2E")
-    default_font = Font(name="Calibri", size=10, color="CBD5E1")
-
-    col_index = {col: j for j, col in enumerate(df.columns, 1)}
-
+    # Write data
     for i, (_, row) in enumerate(df.iterrows(), 2):
-        row_fill = alt_fill if i % 2 == 0 else alt_fill2
-        for col in df.columns:
-            j = col_index[col]
+        for j, col in enumerate(df.columns, 1):
             val = row[col]
-            if isinstance(val, pd.Timestamp):
+            if pd.isna(val):
+                val = None
+            elif isinstance(val, pd.Timestamp):
                 val = val.to_pydatetime()
+                
             cell = ws.cell(row=i, column=j, value=val)
-            cell.font = default_font
-            cell.fill = row_fill
-            # Safe check for highlight_mask
-            if highlight_mask is not None and col in highlight_mask.columns and highlight_mask.at[i - 2, col]:
-                cell.fill = orange_fill
+            
+            # Apply specific Excel number formats
+            if col == 'Order Date' and val is not None:
+                cell.number_format = 'YYYY-MM-DD'
+            elif col == 'Quantity' and val is not None:
+                cell.number_format = '0'
+            elif col in ['Unit Price', 'Total'] and val is not None:
+                cell.number_format = '0.00'
 
     ws.freeze_panes = "A2"
     _auto_width(ws)
@@ -437,12 +424,12 @@ def write_cleaned_excel(
     # ── Sheet 1: Cleaned Data ─────────────────────────────────────────────────
     ws1 = wb.active
     ws1.title = "Cleaned Data"
-    ws1.sheet_view.showGridLines = False
-    _df_to_sheet(ws1, df_clean, highlight_mask=outlier_mask)
+    ws1.sheet_view.showGridLines = True
+    _df_to_sheet(ws1, df_clean)
 
     # ── Sheet 2: Outliers ─────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Outliers")
-    ws2.sheet_view.showGridLines = False
+    ws2.sheet_view.showGridLines = True
     outlier_rows = df_clean[outlier_mask.any(axis=1)].copy()
     if outlier_rows.empty:
         ws2.cell(row=1, column=1, value="No outliers detected.")
@@ -453,11 +440,11 @@ def write_cleaned_excel(
     ws3 = wb.create_sheet("Cleaning Report")
     ws3.sheet_view.showGridLines = False
 
-    fill_hdr = PatternFill("solid", fgColor="1E293B")
-    fill_row = PatternFill("solid", fgColor="0F172A")
-    font_hdr = Font(bold=True, color="7DD3FC", name="Calibri", size=10)
-    font_val = Font(color="CBD5E1", name="Calibri", size=10)
-    font_key = Font(bold=True, color="94A3B8", name="Calibri", size=10)
+    fill_hdr = PatternFill("solid", fgColor="F1F5F9")
+    fill_row = PatternFill("solid", fgColor="FFFFFF")
+    font_hdr = Font(bold=True, color="2563EB", name="Calibri", size=11)
+    font_val = Font(color="475569", name="Calibri", size=11)
+    font_key = Font(bold=True, color="1E293B", name="Calibri", size=11)
 
     def _write(r, c, val, bold=False, header=False):
         cell = ws3.cell(row=r, column=c, value=val)
@@ -497,5 +484,5 @@ def write_cleaned_excel(
 
     wb.save(path)
 
-# Aliases — app.py uses both names across versions
+# Aliases
 write_output = write_cleaned_excel
