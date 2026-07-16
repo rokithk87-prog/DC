@@ -19,13 +19,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Styles ────────────────────────────────────────────────────────────────────
+# ── Styles (Light / Rich Theme) ───────────────────────────────────────────────
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
+        color: #1e293b;
     }
 
     /* Hide default Streamlit chrome */
@@ -34,28 +35,29 @@ st.markdown("""
 
     /* Hero */
     .hero {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f4c81 100%);
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
         border-radius: 16px;
         padding: 2.5rem 3rem;
         margin-bottom: 2rem;
-        border: 1px solid #1e3a5f;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
     }
     .hero h1 {
-        color: #f0f9ff;
+        color: #0f172a;
         font-size: 2rem;
         font-weight: 700;
         margin: 0 0 0.4rem 0;
         letter-spacing: -0.02em;
     }
     .hero p {
-        color: #94a3b8;
+        color: #64748b;
         font-size: 0.95rem;
         margin: 0;
     }
     .hero .badge {
         display: inline-block;
-        background: #0f4c81;
-        color: #7dd3fc;
+        background: #eff6ff;
+        color: #2563eb;
         font-size: 0.7rem;
         font-weight: 600;
         padding: 2px 8px;
@@ -67,23 +69,24 @@ st.markdown("""
 
     /* Upload zone */
     [data-testid="stFileUploader"] {
-        border: 2px dashed #334155 !important;
+        border: 2px dashed #cbd5e1 !important;
         border-radius: 12px !important;
-        background: #0f172a !important;
+        background: #f8fafc !important;
         padding: 1rem !important;
         transition: border-color 0.2s;
     }
     [data-testid="stFileUploader"]:hover {
-        border-color: #3b82f6 !important;
+        border-color: #2563eb !important;
     }
 
     /* Metric cards */
     .metric-row { display: flex; gap: 1rem; margin: 1.5rem 0; flex-wrap: wrap; }
     .metric-card {
-        background: #0f172a;
-        border: 1px solid #1e293b;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
         border-radius: 12px;
         padding: 1.1rem 1.4rem;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
         flex: 1;
         min-width: 130px;
     }
@@ -96,7 +99,7 @@ st.markdown("""
         margin-bottom: 0.3rem;
     }
     .metric-card .value {
-        color: #f1f5f9;
+        color: #0f172a;
         font-size: 1.6rem;
         font-weight: 700;
         font-family: 'JetBrains Mono', monospace;
@@ -106,9 +109,9 @@ st.markdown("""
         font-size: 0.75rem;
         margin-top: 0.25rem;
     }
-    .delta-good { color: #22c55e; }
-    .delta-bad  { color: #ef4444; }
-    .delta-neu  { color: #94a3b8; }
+    .delta-good { color: #16a34a; }
+    .delta-bad  { color: #dc2626; }
+    .delta-neu  { color: #64748b; }
 
     /* Section headers */
     .section-label {
@@ -119,14 +122,14 @@ st.markdown("""
         letter-spacing: 0.1em;
         margin: 2rem 0 0.75rem 0;
         padding-bottom: 0.4rem;
-        border-bottom: 1px solid #1e293b;
+        border-bottom: 1px solid #e2e8f0;
     }
 
     /* Tag pills */
     .pill {
         display: inline-block;
-        background: #1e293b;
-        color: #7dd3fc;
+        background: #f1f5f9;
+        color: #475569;
         font-size: 0.72rem;
         font-weight: 500;
         padding: 3px 10px;
@@ -135,12 +138,12 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace;
     }
     .pill-warn {
-        background: #292524;
-        color: #fb923c;
+        background: #fff7ed;
+        color: #ea580c;
     }
     .pill-ok {
-        background: #0d2a1f;
-        color: #4ade80;
+        background: #f0fdf4;
+        color: #16a34a;
     }
 
     /* Download button */
@@ -154,6 +157,7 @@ st.markdown("""
         font-size: 0.9rem !important;
         width: 100%;
         transition: background 0.15s;
+        box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
     }
     .stDownloadButton > button:hover {
         background: #1d4ed8 !important;
@@ -161,7 +165,7 @@ st.markdown("""
 
     /* Dataframe */
     [data-testid="stDataFrame"] {
-        border: 1px solid #1e293b;
+        border: 1px solid #e2e8f0;
         border-radius: 10px;
         overflow: hidden;
     }
@@ -174,10 +178,10 @@ st.markdown("""
         padding: 0.3rem 0;
         font-family: 'JetBrains Mono', monospace;
         font-size: 0.8rem;
-        color: #94a3b8;
+        color: #64748b;
     }
-    .rename-row .arrow { color: #3b82f6; }
-    .rename-row .new-name { color: #f1f5f9; }
+    .rename-row .arrow { color: #2563eb; }
+    .rename-row .new-name { color: #16a34a; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -199,7 +203,7 @@ uploaded = st.file_uploader(
 
 if not uploaded:
     st.markdown("""
-    <div style="text-align:center; color:#334155; padding: 1.5rem 0; font-size:0.85rem;">
+    <div style="text-align:center; color:#64748b; padding: 1.5rem 0; font-size:0.85rem;">
         Supports <strong style="color:#475569">.xlsx</strong>, <strong style="color:#475569">.xls</strong>, and <strong style="color:#475569">.csv</strong>
     </div>
     """, unsafe_allow_html=True)
@@ -359,14 +363,14 @@ with dl_col:
 with info_col:
     st.markdown(f"""
     <div style="color:#64748b; font-size:0.82rem; padding-top:0.6rem;">
-        Includes <strong style="color:#94a3b8">3 sheets</strong>: 
+        Includes <strong style="color:#475569">3 sheets</strong>: 
         Cleaned Data · Outliers · Cleaning Report<br>
         <span style="font-family:'JetBrains Mono',monospace;">{out_name}</span>
     </div>
     """, unsafe_allow_html=True)
 
 st.markdown(f"""
-<div style="color:#1e293b; font-size:0.72rem; text-align:center; margin-top:3rem;">
+<div style="color:#94a3b8; font-size:0.72rem; text-align:center; margin-top:3rem;">
     Cleaned at {datetime.now().strftime("%H:%M · %d %b %Y")}
 </div>
 """, unsafe_allow_html=True)
