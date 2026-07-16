@@ -9,7 +9,7 @@ import numpy as np
 import io
 import re
 from datetime import datetime
-from clean_excel import clean_dataframe, write_output
+from clean_excel import clean_dataframe, write_cleaned_excel
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -237,7 +237,7 @@ st.markdown('<div class="section-label">Cleaning Summary</div>', unsafe_allow_ht
 
 rows_removed = orig[0] - final[0]
 cols_removed  = orig[1] - final[1]
-total_outliers = sum(report["outliers_flagged"].values())
+total_outliers = sum(report.get("outliers_flagged", {}).values())
 
 st.markdown(f"""
 <div class="metric-row">
@@ -281,18 +281,26 @@ st.markdown(f"""
 col1, col2 = st.columns(2)
 
 with col1:
-    if report["date_cols_detected"]:
+    if report.get("date_cols_detected"):
         st.markdown("**📅 Date columns auto-detected**")
         pills = " ".join(f'<span class="pill pill-ok">{c}</span>' for c in report["date_cols_detected"])
         st.markdown(pills, unsafe_allow_html=True)
 
-    if report["numeric_cols_converted"]:
+    if report.get("numeric_cols_converted"):
         st.markdown("**🔢 Numeric columns converted from text**")
         pills = " ".join(f'<span class="pill">{c}</span>' for c in report["numeric_cols_converted"])
         st.markdown(pills, unsafe_allow_html=True)
 
+    if report.get("fixed_counts"):
+        st.markdown("**🛠️ Cells fixed per column**")
+        pills = " ".join(
+            f'<span class="pill pill-ok">{c}: {n}</span>'
+            for c, n in report["fixed_counts"].items() if n > 0
+        )
+        st.markdown(pills, unsafe_allow_html=True)
+
 with col2:
-    if report["outliers_flagged"]:
+    if report.get("outliers_flagged"):
         st.markdown("**⚠️ Outlier counts by column**")
         pills = " ".join(
             f'<span class="pill pill-warn">{c}: {n}</span>'
@@ -300,7 +308,7 @@ with col2:
         )
         st.markdown(pills, unsafe_allow_html=True)
 
-    if report["columns_renamed"]:
+    if report.get("columns_renamed"):
         st.markdown("**✏️ Column headers normalized**")
         for old, new in report["columns_renamed"].items():
             st.markdown(
