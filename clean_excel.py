@@ -229,7 +229,7 @@ def _df_to_sheet(ws, df: pd.DataFrame, *, highlight_mask: pd.DataFrame | None = 
     _auto_width(ws)
 
 
-def write_cleaned_excel(
+def write_output(
     df_clean: pd.DataFrame,
     report: dict,
     outlier_mask: pd.DataFrame,
@@ -295,3 +295,5 @@ def write_cleaned_excel(
     ws3.freeze_panes = "A2"
 
     wb.save(path)
+
+
