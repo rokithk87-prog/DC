@@ -229,7 +229,7 @@ def _df_to_sheet(ws, df: pd.DataFrame, *, highlight_mask: pd.DataFrame | None = 
     _auto_width(ws)
 
 
-def write_output(
+def write_cleaned_excel(
     df_clean: pd.DataFrame,
     report: dict,
     outlier_mask: pd.DataFrame,
@@ -297,3 +297,6 @@ def write_output(
     wb.save(path)
 
 
+
+# Aliases — app.py uses both names across versions
+write_output = write_cleaned_excel
